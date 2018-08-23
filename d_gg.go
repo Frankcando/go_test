@@ -21,26 +21,26 @@ const Atr_PeriodTime = 20 //atr公式 周期取值
 const K_buy = 0.7         //阀值
 const K_sell = 0.7
 
-const block_len = 12 //轨道区间的长度
+const block_len = 24 * 3 //轨道区间的长度
 //const block_len = 18 //轨道区间的长度
 //const block_len = 18 //轨道区间的长度
 const Open_time = 4 //开仓次数
 //这里乘以90，表示第四个月开始测试。测试的时候 测试用的第一根一分钟k线在整个一分钟k线数组中的位置，即起步k线的位置
 
-//const K_start_Index = 30000 //2013/5/31/21:23
-//const K_end_Index = 100000 //
+const K_start_Index = 30000 //2013/5/31/21:23
+//const K_end_Index = 100000  //
 //const K_start_Index = 45362 //2013/7/15/ 00:01
 //const K_start_Index = 50000 //2013/8/2  6:07:00
-const K_start_Index = 449810 //2017/1/1/ 00:01
+//const K_start_Index = 449810 //2017/1/1/ 00:01
 //const K_start_Index = 315790 //2016/7/20
 
 //const K_start_Index = 329537 //2016/8/1
-//const K_end_Index = 277843 //2014-8-21
+const K_end_Index = 277843 //2014-8-21
 
-const K_end_Index = 1048573 //2018/3/7  18:33:00
+//const K_end_Index = 1048573 //2018/3/7  18:33:00
 
 //const K_start_Index = 292138 //2016/7/19 0:00
-//const K_end_Index = 530000   //2017-3-8
+//const K_end_Index = 530000 //2017-3-8
 
 //const K_start_Index = 217200 //这个区间是初期测试里，亏损的最多的一段
 //const K_end_Index = 292143   //
@@ -76,6 +76,9 @@ var k_len_sum_min int                //所有一分钟k线的长度
 var K_line_array_Sum []K_line //所有k线的集合 60分钟的
 var K_len_Sum int             //k线总个数
 
+var K_line_array_Sum_day []K_line //所有日k线的集合
+var k_len_day int
+
 var Open_array_Sum []float64 //所有k线的开盘价集合 下同 60分钟的
 var High_array_Sum []float64
 var Low_array_Sum []float64
@@ -88,7 +91,7 @@ var win_time_sum int = 0       //盈利次数
 var win_money_sum float64 = 0  //总盈利
 var lost_money_sum float64 = 0 //总亏损
 
-var every_Money_Sum []Money_sum //记录每天的账户总资产  记录时间是 分钟k线的15点左右，即北京时间23点
+var every_Money_Sum []Money_sum //记录每天的账户总资产
 
 /////////////////////////////////////////
 var Rang float64
@@ -109,6 +112,8 @@ type K_line struct {
 	low   float64
 	close float64
 	vol   float64
+
+	last_in_day bool //所在这根k线是否是 当天的最后一根
 }
 
 var test_money_now float64  //账户实时总额（单子的价值加上可用保证金余额）
@@ -133,8 +138,8 @@ type trading_detail struct {
 }
 
 type Money_sum struct {
-	data      string  //时间
-	money_sum float64 //平仓的时候账户总额
+	date      string  //当天的日期
+	money_sum float64 //当天快到零点时候，账户总资产 快照
 }
 
 var trading_detail_arrary []trading_detail //交易明细集合 记录每一笔交易明细，多空都在里面
@@ -248,12 +253,16 @@ func Calc_OneUnit(k60_pos int) float64 {
 
 	} else {
 
-		unit = test_money_left / 100 / 10 / N / 2
-		//unit = test_money_left / 100 / 10 / N / 1
+		//unit = test_money_left / 100 / 10 / N / 2
+		unit = test_money_left / 100 / 10 / N / 1
 
 	}
 
 	return unit
+}
+
+func TestKlineIsLast(K_line_array_Sum_OneMin K_line) {
+
 }
 
 //测试主函数
@@ -271,6 +280,10 @@ func Du_gg_test() {
 	var Close_array []float64
 	var price_now float64
 
+	var Price_close_day float64
+	var money_sum_day float64
+	var orders_sum_day float64
+	var money_sum_today Money_sum
 	//var N float64
 	//K_start_Index 从一分钟k的第1000根开始的
 	//for K_Index := K_start_Index; K_Index < k_len_sum_min-1; K_Index++ {
@@ -470,11 +483,60 @@ func Du_gg_test() {
 
 		}
 
+		//检查k线是不是当天的最后一根， 是就要存当天的总资产 ,买和卖只可能一个有记录
+		if true == K_line_array_Sum_OneMin[K_Index].last_in_day {
+
+			Price_close_day = K_line_array_Sum_OneMin[K_Index].close
+			var loop_buy int
+			var loop_sell int
+			loop_buy = len(trading_detail_buy_array)
+			loop_sell = len(trading_detail_sell_array)
+			orders_sum_day = 0
+			if loop_buy > 0 {
+
+				for i := 0; i < loop_buy; i++ {
+
+					orders_sum_day += trading_detail_buy_array[i].lots * Price_close_day
+
+				}
+				//剩余可用资金 加上订单总价值 等于当天账户总资产
+				money_sum_day = test_money_left + orders_sum_day
+
+			} else if loop_sell > 0 {
+
+				for i := 0; i < loop_sell; i++ {
+
+					orders_sum_day = orders_sum_day + trading_detail_sell_array[i].lots*trading_detail_sell_array[i].price_cost + trading_detail_sell_array[i].lots*(trading_detail_sell_array[i].price_cost-Price_close_day)
+
+				}
+
+			} else { //什么单子都没有，就是空仓的
+
+				orders_sum_day = 0
+			}
+			//剩余可用资金 加上订单总价值 等于当天账户总资产
+			money_sum_day = test_money_left + orders_sum_day
+
+			money_sum_today.date = K_line_array_Sum_OneMin[K_Index].date
+			money_sum_today.money_sum = money_sum_day
+			every_Money_Sum = append(every_Money_Sum, money_sum_today)
+
+			money_sum_today.date = ""
+			money_sum_today.money_sum = 0
+
+		}
+
 	}
 
-	//保存交易记录 和 总资金
+	//保存交易记录
+	fmt.Println("--------开始 保存交易记录------")
 	WriteDetalToCsv()
-	//writeResultToCsv()
+	fmt.Println("--------交易记录 保存完毕------")
+
+	//保存每日总资产
+	fmt.Println("--------开始 保存每日总资产------")
+	writeEverydayToCsv()
+	fmt.Println("----每日总资产保存完毕------")
 
 }
 
@@ -552,50 +614,52 @@ func Normal_StopSellJudge(cost_sell_price float64, price_now float64, lots_sell 
 }
 
 // 保存总资金
-func writeResultToCsv() {
+func writeEverydayToCsv() {
 
-	/*
-		var strFileTest_result string
+	var strFileTest_result string
 
-		timestamp := time.Now().Unix()
+	timestamp := time.Now().Unix()
 
-		strFileTest_result = strconv.FormatInt(timestamp, 10)
-		strFileTest_result += "_testresult.csv"
-		strFileTest_result = "D:\\GoPath\\src\\re_doc\\" + strFileTest_result
+	strFileTest_result = strconv.FormatInt(timestamp, 10)
+	strFileTest_result += "_everyday.csv"
+	strFileTest_result = "D:\\GoPath\\src\\re_doc\\" + strFileTest_result
 
-		f, err := os.Create(strFileTest_result)
-		if err != nil {
-			panic(err)
-		}
+	f, err := os.Create(strFileTest_result)
+	if err != nil {
+		panic(err)
+	}
 
-		f.WriteString("\xEF\xBB\xBF") // 写入UTF-8 BOM
+	f.WriteString("\xEF\xBB\xBF") // 写入UTF-8 BOM
 
-		w := csv.NewWriter(f) //创建一个新的写入文件流
-		data_title := [][]string{
-			{"序号", "资金总额"},
-		}
-		w.WriteAll(data_title) //写入数据
+	w := csv.NewWriter(f) //创建一个新的写入文件流
+	data_title := [][]string{
+		{"序号", "日期", "每日资金总额"},
+	}
+	w.WriteAll(data_title) //写入数据
+	w.Flush()
+
+	var strTemp string
+	var data []string
+	var loops int
+
+	loops = len(every_Money_Sum)
+
+	for i := 0; i < loops; i++ {
+
+		strTemp = strconv.Itoa(i + 1)
+		data = append(data, strTemp)
+
+		strTemp = every_Money_Sum[i].date
+		data = append(data, strTemp)
+
+		strTemp = fmt.Sprintf("%.2f", every_Money_Sum[i].money_sum)
+		data = append(data, strTemp)
+
+		w.Write(data) //写入数据
 		w.Flush()
+		data = data[:0:0]
 
-		var strTemp string
-		var data []string
-		var loops int
-
-		loops = len(Money_sum_array)
-
-		for i := 0; i < loops; i++ {
-
-			strTemp = strconv.Itoa(i + 1)
-			data = append(data, strTemp)
-
-			strTemp = fmt.Sprintf("%.2f", Money_sum_array[i])
-			data = append(data, strTemp)
-
-			w.Write(data) //写入数据
-			w.Flush()
-			data = data[:0:0]
-
-		}*/
+	}
 }
 
 //将交易记录写入csv文件
@@ -737,6 +801,8 @@ func Du_Init() {
 
 	ReadTickData()
 
+	ReadDayData()
+
 	////-----读取csv，准备回测用的k线数据---//////////////////////////////
 	//my_Kline := []K_line{}
 
@@ -813,7 +879,12 @@ func ReadTickData() {
 	////////-----读一分钟的k线数据文件csv，当成是 TICK数据来用---//////////////////////////////////////
 
 	//K_line_array_Sum_OneMin
-
+	var lenth int
+	var pos_prev int
+	var pos_next int
+	//var strspace string
+	var strDate_prev string
+	var strDate_next string
 	fileName := "D:\\good_doc\\btc_usd.csv"
 	file, err := os.Open(fileName)
 	if err != nil {
@@ -866,15 +937,76 @@ func ReadTickData() {
 		K_line_temp.close = 0
 		K_line_temp.vol = 0
 
-		//f, err := strconv.ParseFloat("3.1415", 64)
-		//bb, err = strconv.ParseFloat("33.444", 64)
+		//判断这根一分钟k线是否是当天最后一根k线，在K_line_array_Sum_OneMin里 比较相邻的二根k线， last_in_day
 
-		//fmt.Println(aa)
-		//split_line := strings.Split(record, ",")
-		//fmt.Println(record) // record has the type []string
+		lenth = len(K_line_array_Sum_OneMin)
+		if lenth >= 2 {
+
+			pos_prev = strings.Index(K_line_array_Sum_OneMin[lenth-2].date, " ")
+			pos_next = strings.Index(K_line_array_Sum_OneMin[lenth-1].date, " ")
+			if pos_prev > 0 && pos_next > 0 {
+				strDate_next = K_line_array_Sum_OneMin[lenth-1].date[0:pos_next]
+				strDate_prev = K_line_array_Sum_OneMin[lenth-2].date[0:pos_prev]
+				if strDate_prev != strDate_next {
+
+					K_line_array_Sum_OneMin[lenth-2].last_in_day = true
+
+				}
+
+			}
+
+		}
+
 	}
 
 	///////////////////
+}
+
+//读每天的日线数据，只读取 日期 和 当天收盘价
+func ReadDayData() {
+
+	////////-----读一分钟的k线数据文件csv，当成是 TICK数据来用---//////////////////////////////////////
+
+	//K_line_array_Sum_OneMin
+
+	fileName := "D:\\good_doc\\btcusd_day_day_2.csv"
+	file, err := os.Open(fileName)
+	if err != nil {
+		fmt.Println("Error:", err)
+		return
+	}
+	var K_line_temp K_line
+	var strTemp string
+	defer file.Close()
+	reader := csv.NewReader(file)
+	for {
+		record, err := reader.Read()
+		if err == io.EOF {
+			break
+		} else if err != nil {
+			fmt.Println("Error:", err)
+			return
+		}
+		//读取 每一行数据 然后分离
+
+		K_line_temp.date = record[0]
+
+		strTemp = record[4]
+		K_line_temp.close, err = strconv.ParseFloat(strTemp, 64)
+
+		K_line_array_Sum_day = append(K_line_array_Sum_day, K_line_temp)
+		k_len_day++
+
+		K_line_temp.date = ""
+		K_line_temp.time = ""
+		K_line_temp.open = 0
+		K_line_temp.high = 0
+		K_line_temp.low = 0
+		K_line_temp.close = 0
+		K_line_temp.vol = 0
+
+	}
+
 }
 
 func ExtremumInArray_min(array []float64) float64 {
